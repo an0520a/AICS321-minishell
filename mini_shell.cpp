@@ -105,21 +105,21 @@ int main(int argc, char** argv, char** envp)
         std::queue<std::string> var_definition_queue;
         std::error_code error_code;
         CommandType redirection_type = CommandType::kInvalid;
-        struct passwd *pwd;
-        pwd = getpwuid(getuid());
+        struct passwd *pw;
+        pw = getpwuid(getuid());
         char hostname[257] = { '\0' };
         gethostname(hostname, 257);
-        if (fs::current_path().compare(getenv("HOME")) == 0)
+        if (fs::current_path().compare(pw->pw_dir) == 0)
         {
-            std::cout << pwd->pw_name << "@" << hostname << ":" << fs::path("~").string() << "$ " << std::flush;
+            std::cout << pw->pw_name << "@" << hostname << ":" << fs::path("~").string() << "$ " << std::flush;
         }
-        else if(fs::current_path().compare(getenv("HOME")) > 0)
+        else if(fs::current_path().compare(pw->pw_dir) > 0)
         {
-            std::cout << pwd->pw_name << "@" << hostname << ":" << (fs::path("~") / fs::current_path().lexically_relative(getenv("HOME"))).string() << "$ " << std::flush;
+            std::cout << pw->pw_name << "@" << hostname << ":" << (fs::path("~") / fs::current_path().lexically_relative(pw->pw_dir)).string() << "$ " << std::flush;
         }
         else
         {
-            std::cout << pwd->pw_name << "@" << hostname << ":" << fs::current_path().string() << "$ " << std::flush;
+            std::cout << pw->pw_name << "@" << hostname << ":" << fs::current_path().string() << "$ " << std::flush;
         }
 
         std::getline(std::cin, line);
@@ -153,8 +153,10 @@ int main(int argc, char** argv, char** envp)
 
         if(!line.empty())
         {
-            if(g_command_history_deque.size() < history_size) g_command_history_deque.push_back(line);
-            else                                              g_command_history_deque.pop_front(), g_command_history_deque.push_back(line);
+            while(g_command_history_deque.empty() == false && g_command_history_deque.size() >= history_size)
+                g_command_history_deque.pop_front();
+
+            if(history_size) g_command_history_deque.push_back(line);
         }
 
         while(!line.empty())
@@ -507,6 +509,7 @@ std::vector< std::pair<std::string, ShellStringType> > LineParsing(std::string &
     const static std::regex k_remove_backslash_regex(R"(\\(.))", std::regex::optimize);
     const static std::regex k_find_asterisk_regex(R"((\*))", std::regex::optimize);
     bool new_string_flag = true;
+    struct passwd *pw = getpwuid(getuid());
     for (std::pair<std::string, ShellStringType>& parsed_line_entry : parsed_line_entry_vec)
     {
         switch (parsed_line_entry.second)
@@ -538,7 +541,7 @@ std::vector< std::pair<std::string, ShellStringType> > LineParsing(std::string &
             parsed_line_entry.second = ShellStringType::kString;
             break;
         case ShellStringType::kPathSpecial:
-            if(parsed_line_entry.first == "~") parsed_line_entry.first = getenv("HOME")? getenv("HOME") : "";
+            if(parsed_line_entry.first == "~") parsed_line_entry.first = pw->pw_dir? pw->pw_dir : "";
             parsed_line_entry.second = ShellStringType::kString;
             break;
         case ShellStringType::kShellVar: // 임시처리
@@ -863,14 +866,15 @@ bool IsRedirectionCommandType(const CommandType& k_command) noexcept
 
 void Cd(const std::vector<std::string>& __k_args, std::error_code& __ec) noexcept
 {
+    struct passwd *pw = getpwuid(getuid());
     __ec.clear();
 
     switch (__k_args.size())
     {
     case 0:
-        if(getenv("HOME") != nullptr)
+        if(pw->pw_dir != nullptr)
         {
-            fs::current_path(getenv("HOME"), __ec);
+            fs::current_path(pw->pw_dir, __ec);
             if(getenv("PWD") != nullptr)
             {
                 setenv("OLDPWD", getenv("PWD"), true);
